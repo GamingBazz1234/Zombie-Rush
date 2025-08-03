@@ -1,7 +1,9 @@
 {
   "name": "Zombie-Rush",
-  "short_name": "Zombie-Rush",
-  "start_url": "/Zombie-Rush/index.html",
+  "short_name": "ZombieRush",
+  "description": "A fast-paced HTML5 zombie survival game!",
+  "start_url": "./index.html",
+  "id": "/",
   "display": "fullscreen",
   "background_color": "#000000",
   "theme_color": "#000000",
@@ -19,4 +21,3 @@
     }
   ]
 }
-
