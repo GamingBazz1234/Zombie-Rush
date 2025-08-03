@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#000000">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Battle Royal</title>
+  <style>
+    body {
+      background: url('https://freeimage.host/i/3gbgXfe') no-repeat center center fixed;
+      background-size: cover;
+    }
+    html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; background-color: #6DBF47; font-family: Arial, sans-serif; }
+    canvas { display: block; }
+    #hud, #weapon-hud, #controls, #game-over, #wave-msg {
+      position: absolute; z-index: 100; color: white; font-size: 16px;
+    }
+    #hud { top: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 8px; }
+    #weapon-hud { top: 10px; right: 10px; background: rgba(0,0,0,0.6); padding: 10px; border-radius: 8px; }
+    #controls { bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 20px; }
+    .btn { background: rgba(0,0,0,0.7); color: white; border: none; padding: 10px 20px; font-size: 14px; border-radius: 5px; cursor: pointer; }
+    #game-over {
+      display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.8); padding: 30px; border-radius: 12px; text-align: center;
+    }
+    #wave-msg {
+      display: none; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.7); padding: 20px 40px; font-size: 32px; border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <div id="hud">
+    <div>HEALTH: <span id="health">100</span></div>
+    <div>KILLS: <span id="kills">0</span></div>
+    <div>RANK: <span id="rank">Noob</span></div>
+  </div>
+  <div id="weapon-hud">
+    <div><img src="https://iili.io/3gY953g.png" width="40" style="vertical-align:middle"> AK-47</div>
+    <div>10 / 30</div>
+  </div>
+  <div id="controls">
+    <button class="btn" onclick="pauseGame()">Pause</button>
+    <button class="btn" onclick="restartGame()">Restart</button>
+    <button class="btn" onclick="goToMenu()">Main Menu</button>
+  </div>
+  <div id="game-over">
+    <h2>Game Over</h2>
+    <button class="btn" onclick="restartGame()">Restart</button>
+    <button class="btn" onclick="goToMenu()">Main Menu</button>
+  </div>
+  <div id="wave-msg">Next Stage</div>
+  <audio id="gunSound" src="https://s3.eu-central-1.wasabisys.com/audio.com.audio/source/37/10/1834329183301037-1834329183391639.mp3?response-content-disposition=attachment%3B%20filename%3D%22sound-effects-single-gun-shot-247124.mp3%22&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=W7IA3NSYSOQIKLY9DEVC%2F20250608%2Feu-central-1%2Fs3%2Faws4_request&X-Amz-Date=20250608T031717Z&X-Amz-SignedHeaders=host&X-Amz-Expires=518400&X-Amz-Signature=e5397fb75d0a03fbb6ed84b78659b91f30364c0652d546bd36ac37846540c3f2"></audio>
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let player = { x: canvas.width/2, y: canvas.height/2, w: 50, h: 60, speed: 3.5, inCar: false };
+    let car = { x: canvas.width/2 + 80, y: canvas.height/2, w: 100, h: 60 };
+    let zombies = [];
+    let bullets = [];
+    let keys = {};
+    let health = 100, kills = 0, wave = 1, paused = false;
+    let bossSpawned = false;
+    let difficulty = 'easy'; // options: easy, medium, hard
+    let wave15Count = 0;
+    const gunSound = document.getElementById('gunSound');
+
+    const playerImg = new Image(); playerImg.src = 'https://iili.io/3gY97aa.png';
+    const carImg = new Image(); carImg.src = 'https://iili.io/3gY9ayv.png';
+    const zombieImg = new Image(); zombieImg.src = 'https://iili.io/3gYpoYJ.png';
+    const bossImg = new Image(); bossImg.src = 'https://iili.io/3gcmczl.png';
+
+    function spawnZombies(count, isBoss = false) {
+      let zombieSpeed;
+      switch (difficulty) {
+        case 'easy': zombieSpeed = isBoss ? 0.5 : 0.5 + Math.random() * 0.5; break;
+        case 'medium': zombieSpeed = isBoss ? 0.7 : 1 + Math.random(); break;
+        case 'hard': zombieSpeed = isBoss ? 1 : 2 + Math.random(); break;
+      }
+      let attempts = 0;
+      while (zombies.length < count && attempts < 1000) {
+        attempts++;
+                const zx = Math.random() < 0.5 ? -60 : canvas.width + 60;
+        const zy = Math.random() * canvas.height;
+        const tooClose = Math.abs(zx - player.x) < 200 && Math.abs(zy - player.y) < 200;
+        if (tooClose) continue;
+        zombies.push({ x: zx, y: zy,
+          x: Math.random() < 0.5 ? -60 : canvas.width + 60,
+          y: Math.random() * canvas.height,
+          w: isBoss ? 100 : 50,
+          h: isBoss ? 100 : 50,
+          speed: zombieSpeed,
+          health: isBoss ? 500 : 50,
+          isBoss,
+          summonCooldown: Date.now()
+        });
+      }
+    }
+
+    function update() {
+      // Restrict player and car inside canvas
+      player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
+      player.y = Math.max(0, Math.min(canvas.height - player.h, player.y));
+      car.x = Math.max(0, Math.min(canvas.width - car.w, car.x));
+      car.y = Math.max(0, Math.min(canvas.height - car.h, car.y));
+      if (player.inCar) {
+        if (keys['w']) car.y -= player.speed;
+        if (keys['s']) car.y += player.speed;
+        if (keys['a']) car.x -= player.speed;
+        if (keys['d']) car.x += player.speed;
+        player.x = car.x;
+        player.y = car.y;
+      } else {
+        if (keys['w']) player.y -= player.speed;
+        if (keys['s']) player.y += player.speed;
+        if (keys['a']) player.x -= player.speed;
+        if (keys['d']) player.x += player.speed;
+      }
+      if (paused || health <= 0) return;
+      if (keys['w']) player.y -= player.speed;
+      if (keys['s']) player.y += player.speed;
+      if (keys['a']) player.x -= player.speed;
+      if (keys['d']) player.x += player.speed;
+
+      bullets.forEach((b, i) => {
+        b.x += b.dx;
+        b.y += b.dy;
+        if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height)
+          bullets.splice(i, 1);
+      });
+
+      zombies.forEach((z, i) => {
+        if (z.isBoss && Date.now() - (z.lastFireTime || 0) > 3000) {
+          const angle1 = Math.atan2(player.y - z.y, player.x - z.x);
+          const angle2 = angle1 - 0.3;
+          const speed = 6;
+          bullets.push({ x: z.x, y: z.y, dx: Math.cos(angle1) * speed, dy: Math.sin(angle1) * speed, fromBoss: true });
+          bullets.push({ x: z.x, y: z.y, dx: Math.cos(angle2) * speed, dy: Math.sin(angle2) * speed, fromBoss: true });
+          z.lastFireTime = Date.now();
+        }
+        const dx = player.x - z.x;
+        const dy = player.y - z.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        z.x += dx / dist * z.speed;
+        z.y += dy / dist * z.speed;
+
+        bullets.forEach((b, j) => {
+        if (Math.abs(b.x - z.x) < 25 && Math.abs(b.y - z.y) < 25) {
+          // Only apply damage if bullet came from player (not boss)
+          if (!b.fromBoss) {
+            z.health -= z.isBoss ? 50 : 50;
+          }
+          bullets.splice(j, 1);
+          }
+        });
+
+        if (!player.inCar && Math.abs(z.x - player.x) < 30 && Math.abs(z.y - player.y) < 30) {
+          health -= 0.5;
+        }
+
+        if (z.isBoss && Date.now() - z.summonCooldown > 2000) {
+          for (let i = 0; i < 2; i++) {
+            const offsetX = (Math.random() - 0.5) * 100;
+            const offsetY = (Math.random() - 0.5) * 100;
+            zombies.push({
+              x: z.x + offsetX,
+              y: z.y + offsetY,
+              w: 50,
+              h: 50,
+              speed: difficulty === 'easy' ? 0.5 + Math.random() * 0.5 : difficulty === 'medium' ? 1 + Math.random() : 2 + Math.random(),
+              health: 50,
+              isBoss: false,
+              summonCooldown: Date.now()
+            });
+          }
+          z.summonCooldown = Date.now();
+        }
+
+        if (z.health <= 0) {
+          zombies.splice(i, 1);
+          kills++;
+          document.getElementById('kills').textContent = kills;
+          const rank = kills >= 100 ? 'Pro' : kills >= 50 ? 'Average' : 'Noob';
+          document.getElementById('rank').textContent = rank;
+        }
+      });
+
+      document.getElementById('health').textContent = Math.floor(health);
+
+      if (kills === 50 && wave < 99) {
+        showWave('do practice');
+        spawnZombies(50);
+        wave = 99;
+      }
+      if (zombies.length === 0) {
+        if (wave === 1) { spawnZombies(8); showWave('Next Stage'); wave = 2; }
+        else if (wave === 2) { spawnZombies(15); showWave('Final Wave'); wave = 3; wave15Count++; }
+        else if (wave === 3 && wave15Count < 2) { spawnZombies(15); wave15Count++; showWave('Wave +'); }
+        else if (wave15Count >= 2 && !bossSpawned) {
+          spawnZombies(3, true);
+          bossSpawned = true;
+          showWave('Boss Wave');
+        }
+      }
+
+      if (health <= 0) {
+        document.getElementById('game-over').style.display = 'block';
+      }
+
+      // Show win message if no zombies and boss has spawned
+      if (bossSpawned && zombies.length === 0 && kills >= 100) {
+        const waveMsg = document.getElementById('wave-msg');
+        waveMsg.innerHTML = 'You won<br><small>Created by @Gaming_Bazz1234</small>';
+        waveMsg.style.display = 'block';
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(carImg, car.x - car.w/2, car.y - car.h/2, car.w, car.h);
+      
+      if (!player.inCar) {
+        ctx.drawImage(playerImg, player.x - player.w/2, player.y - player.h/2, player.w, player.h);
+        
+      }
+      bullets.forEach(b => {
+        ctx.fillStyle = b.fromBoss ? 'red' : 'yellow';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      zombies.forEach(z => {
+        const img = z.isBoss ? bossImg : zombieImg;
+        ctx.drawImage(img, z.x - z.w/2, z.y - z.h/2, z.w, z.h);
+        ctx.fillStyle = 'red';
+        ctx.fillRect(z.x - 25, z.y - 35, 50, 5);
+        ctx.fillStyle = 'lime';
+        ctx.fillRect(z.x - 25, z.y - 35, (z.health / (z.isBoss ? 500 : 50)) * 50, 5);
+      });
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    function shoot(e) {
+      if (paused || health <= 0) return;
+      const angle = Math.atan2(e.clientY - player.y, e.clientX - player.x);
+      bullets.push({ x: player.x, y: player.y, dx: Math.cos(angle)*10, dy: Math.sin(angle)*10 });
+      gunSound.currentTime = 0;
+      gunSound.play();
+    }
+
+    function restartGame() {
+      player.x = canvas.width/2; player.y = canvas.height/2;
+      car.x = canvas.width/2 + 80; car.y = canvas.height/2;
+      health = 100; kills = 0; wave = 1; paused = false; wave15Count = 0;
+      zombies = []; bullets = []; bossSpawned = false;
+      spawnZombies(3);
+      document.getElementById('game-over').style.display = 'none';
+      document.getElementById('kills').textContent = '0';
+      document.getElementById('rank').textContent = 'Noob';
+    }
+
+    function pauseGame() { paused = !paused; }
+    function goToMenu() { location.reload(); }
+    function showWave(text) {
+      const waveMsg = document.getElementById('wave-msg');
+      waveMsg.textContent = text;
+      waveMsg.style.display = 'block';
+      setTimeout(() => waveMsg.style.display = 'none', 1500);
+    }
+
+    window.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+    window.addEventListener('keyup', e => {
+      keys[e.key.toLowerCase()] = false;
+
+      if (e.key.toLowerCase() === 'e') {
+        const dist = Math.sqrt((player.x - car.x) ** 2 + (player.y - car.y) ** 2);
+        if (dist < 100) {
+          player.inCar = !player.inCar;
+        }
+      }
+    });
+    window.addEventListener('mousedown', shoot);
+
+    // Wait until all images are loaded before starting the game
+    let imagesLoaded = 0;
+    [playerImg, carImg, zombieImg, bossImg].forEach(img => {
+      img.onload = () => {
+        imagesLoaded++;
+        if (imagesLoaded === 4) {
+          restartGame();
+          gameLoop();
+        }
+      };
+    });
+  </script>
+  <audio id="bgm" src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3" autoplay loop></audio>
+  <button onclick="toggleMusic()" style="position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000;" class="btn">Toggle Music</button>
+  <script>
+    function toggleMusic() {
+      const music = document.getElementById('bgm');
+      music.paused ? music.play() : music.pause();
+    }
+  </script>
+  <!-- Mobile Joystick & Buttons -->
+  <div id="joystick-container" style="position: absolute; bottom: 120px; left: 60px; width: 120px; height: 120px; display: none; z-index: 200;">
+    <div id="joystick-base" style="width: 100%; height: 100%; background: rgba(255,255,255,0.2); border-radius: 50%; position: relative;">
+      <div id="joystick-knob" style="width: 60px; height: 60px; background: rgba(255,255,255,0.5); border-radius: 50%; position: absolute; top: 30px; left: 30px;"></div>
+    </div>
+  </div>
+  <div id="mobile-buttons" style="position: absolute; bottom: 60px; right: 30px; display: none; flex-direction: column; gap: 10px; z-index: 200;">
+    <button class="btn" onclick="shoot({clientX: player.x + 1, clientY: player.y})">🔫 Shoot</button>
+    <button class="btn" onclick="toggleCar()">🚗 Enter/Exit</button>
+  </div>
+
+  <script>
+    const knob = document.getElementById('joystick-knob');
+    const base = document.getElementById('joystick-base');
+    let dragging = false;
+
+    base.addEventListener('touchstart', () => dragging = true);
+    base.addEventListener('touchend', () => {
+      dragging = false;
+      knob.style.top = '30px'; knob.style.left = '30px';
+      keys['w'] = keys['a'] = keys['s'] = keys['d'] = false;
+    });
+
+    base.addEventListener('touchmove', e => {
+      if (!dragging) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      const rect = base.getBoundingClientRect();
+      const x = touch.clientX - rect.left - 60;
+      const y = touch.clientY - rect.top - 60;
+      const dx = Math.max(-30, Math.min(30, x));
+      const dy = Math.max(-30, Math.min(30, y));
+      knob.style.left = `${30 + dx}px`;
+      knob.style.top = `${30 + dy}px`;
+      keys['w'] = dy < -10;
+      keys['s'] = dy > 10;
+      keys['a'] = dx < -10;
+      keys['d'] = dx > 10;
+    }, { passive: false });
+
+    function toggleCar() {
+      const dist = Math.sqrt((player.x - car.x) ** 2 + (player.y - car.y) ** 2);
+      if (dist < 100) player.inCar = !player.inCar;
+    }
+
+    if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+      document.getElementById('joystick-container').style.display = 'block';
+      document.getElementById('mobile-buttons').style.display = 'flex';
+    }
+  </script>
+</body>
+</html>
